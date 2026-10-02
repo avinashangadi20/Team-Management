@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
-import { Notification } from '../types';
+import { Notification, Role } from '../types';
 
 export function createNotification(params: {
   user_id: string;
@@ -24,7 +24,7 @@ export function createNotification(params: {
   return notif;
 }
 
-export function notifyRoles(roles: ('ADMIN' | 'TEAM_LEADER' | 'AGENT')[], params: {
+export function notifyRoles(roles: Role[], params: {
   title: string;
   message: string;
   type: Notification['type'];

@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx';
+import fs from 'fs';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../db';
 import {
@@ -496,11 +498,25 @@ export async function processUploadedReport(options: ProcessReportOptions): Prom
     reportStatus = 'COMPLETED_WITH_ERRORS';
   }
 
+  // Store file in file storage separately from database records
+  const uploadsDir = path.resolve(process.cwd(), 'data', 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+  const safeFileName = `${reportId}_${options.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const storagePath = path.join(uploadsDir, safeFileName);
+  try {
+    fs.writeFileSync(storagePath, options.fileBuffer);
+  } catch (saveErr) {
+    console.warn('Could not persist file to storage disk:', saveErr);
+  }
+
   // Store UploadedReport record
   const uploadedReportRecord: UploadedReport = {
     id: reportId,
     file_name: options.fileName,
     file_size: options.fileSize,
+    storage_path: storagePath,
     report_type: options.reportType,
     uploaded_by_id: options.uploadedById,
     uploaded_by_name: options.uploadedByName,

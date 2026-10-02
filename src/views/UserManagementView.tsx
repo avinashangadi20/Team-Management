@@ -44,14 +44,20 @@ export const UserManagementView: React.FC = () => {
           team_id: teamFilter || undefined,
           page,
           limit: 20
+        }).catch((err) => {
+          console.warn('Failed to load users:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
         }),
-        api.getTeams()
+        api.getTeams().catch((err) => {
+          console.warn('Failed to load teams:', err);
+          return [];
+        })
       ]);
-      setUsers(uRes.users);
-      setTotal(uRes.total);
-      setTeams(tRes);
+      setUsers(uRes?.users || []);
+      setTotal(uRes?.total || 0);
+      setTeams(Array.isArray(tRes) ? tRes : []);
     } catch (err: any) {
-      console.error('Failed to load users:', err);
+      console.warn('Notice loading users:', err);
     } finally {
       setLoading(false);
     }

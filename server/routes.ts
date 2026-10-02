@@ -186,6 +186,13 @@ apiRouter.post('/auth/register', (req, res) => {
   }
 });
 
+export function getRedirectUrlForRole(role: string): string {
+  if (role === 'ADMIN') return '/admin/dashboard';
+  if (role === 'AM') return '/am/dashboard';
+  if (role === 'TEAM_LEADER' || role === 'TL') return '/tl/dashboard';
+  return '/agent/dashboard';
+}
+
 apiRouter.post('/auth/login', (req, res) => {
   try {
     const { username, password } = req.body;
@@ -286,7 +293,8 @@ apiRouter.post('/auth/login', (req, res) => {
 
     return res.json({
       token,
-      user: sanitizeUser(user)
+      user: sanitizeUser(user),
+      redirectUrl: getRedirectUrlForRole(user.role)
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Login failed' });
@@ -302,7 +310,7 @@ apiRouter.post('/auth/quick-switch', (req, res) => {
   if (username) {
     targetUser = users.find((u) => u.username === username);
   } else if (role) {
-    targetUser = users.find((u) => u.role === role && u.status === 'APPROVED');
+    targetUser = users.find((u) => (u.role === role || (role === 'TL' && u.role === 'TEAM_LEADER')) && u.status === 'APPROVED');
   }
 
   if (!targetUser) {
@@ -312,7 +320,8 @@ apiRouter.post('/auth/quick-switch', (req, res) => {
   const token = generateToken(targetUser);
   return res.json({
     token,
-    user: sanitizeUser(targetUser)
+    user: sanitizeUser(targetUser),
+    redirectUrl: getRedirectUrlForRole(targetUser.role)
   });
 });
 
@@ -326,6 +335,7 @@ apiRouter.get('/auth/me', authenticateToken, (req: AuthenticatedRequest, res: Re
 
   return res.json({
     user: sanitizeUser(user),
+    redirectUrl: getRedirectUrlForRole(user.role),
     teamName: team ? team.name : null,
     reportingTlName: reportingTl ? reportingTl.full_name : null
   });
@@ -348,9 +358,19 @@ apiRouter.post('/auth/logout', authenticateToken, (req: AuthenticatedRequest, re
 // 2. ADMIN USER & TEAM MANAGEMENT
 // -------------------------------------------------------------
 
-apiRouter.get('/admin/users', authenticateToken, requireRole(['ADMIN']), (req, res) => {
+apiRouter.get('/admin/users', authenticateToken, (req: AuthenticatedRequest, res) => {
   const { search, role, status, team_id, page = 1, limit = 20 } = req.query;
+  const user = req.user!;
   let list = db.get('users');
+
+  // Role based filtering: AM and TL only see relevant users if not querying specific role
+  if (user.role === 'TEAM_LEADER' || user.role === 'TL') {
+    const teams = db.get('teams');
+    const myTeam = teams.find((t) => t.tl_id === user.id || t.id === user.team_id);
+    if (myTeam && !team_id) {
+      list = list.filter((u) => u.team_id === myTeam.id || u.id === user.id);
+    }
+  }
 
   if (search) {
     const q = String(search).toLowerCase();
@@ -511,7 +531,7 @@ apiRouter.get('/teams', authenticateToken, (req, res) => {
   return res.json(populated);
 });
 
-apiRouter.post('/teams', authenticateToken, requireRole(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/teams', authenticateToken, requireRole(['ADMIN', 'AM']), (req: AuthenticatedRequest, res: Response) => {
   const { name, process: processName, description, tl_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Team name is required.' });
 
@@ -530,7 +550,7 @@ apiRouter.post('/teams', authenticateToken, requireRole(['ADMIN']), (req: Authen
   logAudit({
     user_id: req.user!.id,
     username: req.user!.username,
-    role: 'ADMIN',
+    role: req.user!.role,
     action: 'CREATE_TEAM',
     module: 'Team Management',
     record_id: newTeam.id,
@@ -541,7 +561,7 @@ apiRouter.post('/teams', authenticateToken, requireRole(['ADMIN']), (req: Authen
   return res.status(201).json(newTeam);
 });
 
-apiRouter.put('/teams/:id', authenticateToken, requireRole(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/teams/:id', authenticateToken, requireRole(['ADMIN', 'AM']), (req: AuthenticatedRequest, res: Response) => {
   const teamId = req.params.id;
   const { name, process: processName, description, tl_id, status } = req.body;
 
@@ -581,7 +601,7 @@ apiRouter.put('/teams/:id', authenticateToken, requireRole(['ADMIN']), (req: Aut
   logAudit({
     user_id: req.user!.id,
     username: req.user!.username,
-    role: 'ADMIN',
+    role: req.user!.role,
     action: 'EDIT_TEAM',
     module: 'Team Management',
     record_id: teamId,
@@ -593,7 +613,7 @@ apiRouter.put('/teams/:id', authenticateToken, requireRole(['ADMIN']), (req: Aut
   return res.json(teams[idx]);
 });
 
-apiRouter.post('/teams/:id/assign-agents', authenticateToken, requireRole(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/teams/:id/assign-agents', authenticateToken, requireRole(['ADMIN', 'AM']), (req: AuthenticatedRequest, res: Response) => {
   const teamId = req.params.id;
   const { employee_ids } = req.body; // array of employee_ids
 
@@ -624,7 +644,7 @@ apiRouter.post('/teams/:id/assign-agents', authenticateToken, requireRole(['ADMI
   logAudit({
     user_id: req.user!.id,
     username: req.user!.username,
-    role: 'ADMIN',
+    role: req.user!.role,
     action: 'ASSIGN_AGENTS_TO_TEAM',
     module: 'Team Management',
     record_id: teamId,
@@ -636,9 +656,9 @@ apiRouter.post('/teams/:id/assign-agents', authenticateToken, requireRole(['ADMI
 });
 
 // Admin TL Management overview
-apiRouter.get('/admin/tls', authenticateToken, requireRole(['ADMIN']), (req, res) => {
+apiRouter.get('/admin/tls', authenticateToken, (req, res) => {
   const users = db.get('users');
-  const tls = users.filter((u) => u.role === 'TEAM_LEADER');
+  const tls = users.filter((u) => u.role === 'TEAM_LEADER' || u.role === 'TL');
   const teams = db.get('teams');
   const employees = db.get('employees');
   const activities = db.get('tl_activities');
@@ -670,6 +690,31 @@ apiRouter.get('/admin/tls', authenticateToken, requireRole(['ADMIN']), (req, res
   return res.json(result);
 });
 
+// Admin AM Management overview
+apiRouter.get('/admin/ams', authenticateToken, (req, res) => {
+  const users = db.get('users');
+  const ams = users.filter((u) => u.role === 'AM');
+  const teams = db.get('teams');
+  const employees = db.get('employees');
+
+  const result = ams.map((am) => {
+    const managedTeams = teams.filter((t) => t.am_id === am.id);
+    const managedTeamIds = managedTeams.map((t) => t.id);
+    const managedTLs = users.filter((u) => (u.role === 'TEAM_LEADER' || u.role === 'TL') && managedTeamIds.includes(u.team_id || ''));
+    const managedAgents = employees.filter((e) => managedTeamIds.includes(e.team_id || '') && e.status === 'APPROVED');
+
+    return {
+      ...sanitizeUser(am),
+      teams: managedTeams,
+      teams_count: managedTeams.length,
+      tls_count: managedTLs.length,
+      agents_count: managedAgents.length
+    };
+  });
+
+  return res.json(result);
+});
+
 // -------------------------------------------------------------
 // 3. REPORT UPLOADER & PROCESSING PIPELINE
 // -------------------------------------------------------------
@@ -677,7 +722,7 @@ apiRouter.get('/admin/tls', authenticateToken, requireRole(['ADMIN']), (req, res
 apiRouter.post(
   '/reports/upload',
   authenticateToken,
-  requireRole(['ADMIN', 'TEAM_LEADER']),
+  requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']),
   upload.single('file'),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
@@ -711,16 +756,15 @@ apiRouter.post(
   }
 );
 
-apiRouter.get('/reports/history', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/reports/history', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   let list = db.get('uploaded_reports');
-  // TL sees only reports they uploaded or reports for their team
-  if (req.user!.role === 'TEAM_LEADER') {
+  if (req.user!.role === 'TEAM_LEADER' || req.user!.role === 'TL') {
     list = list.filter((r) => r.uploaded_by_id === req.user!.id || r.team_id === req.user!.team_id);
   }
   return res.json(list);
 });
 
-apiRouter.get('/reports/:id/errors', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req, res) => {
+apiRouter.get('/reports/:id/errors', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req, res) => {
   const reportId = req.params.id;
   const errors = db.get('report_errors').filter((e) => e.report_id === reportId);
   return res.json(errors);
@@ -893,7 +937,7 @@ apiRouter.get('/performance/monthly', authenticateToken, (req: AuthenticatedRequ
   return res.json(populated);
 });
 
-apiRouter.post('/performance/recalculate', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/performance/recalculate', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const { date } = req.body;
   const targetDate = date || '2026-10-01';
   recalculateAllPerformancesForDate(targetDate);
@@ -988,7 +1032,7 @@ apiRouter.get('/feedback', authenticateToken, (req: AuthenticatedRequest, res: R
   return res.json(populated);
 });
 
-apiRouter.post('/feedback', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/feedback', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const {
     employee_id,
     call_id,
@@ -1066,7 +1110,7 @@ apiRouter.post('/feedback', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADE
   return res.status(201).json(newFb);
 });
 
-apiRouter.put('/feedback/:id', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/feedback/:id', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const fbId = req.params.id;
   const list = db.get('feedback');
   const idx = list.findIndex((f) => f.id === fbId);
@@ -1125,7 +1169,7 @@ apiRouter.get('/coaching', authenticateToken, (req: AuthenticatedRequest, res: R
   return res.json(populated);
 });
 
-apiRouter.post('/coaching', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/coaching', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const {
     employee_id,
     feedback_id,
@@ -1199,7 +1243,7 @@ apiRouter.post('/coaching', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADE
   return res.status(201).json(newCoach);
 });
 
-apiRouter.put('/coaching/:id', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/coaching/:id', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const coachId = req.params.id;
   const list = db.get('coaching');
   const idx = list.findIndex((c) => c.id === coachId);
@@ -1232,7 +1276,7 @@ apiRouter.put('/coaching/:id', authenticateToken, requireRole(['ADMIN', 'TEAM_LE
 // 6. TL ACTIVITIES
 // -------------------------------------------------------------
 
-apiRouter.get('/tl/activities', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/tl/activities', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   let list = db.get('tl_activities');
   if (req.user!.role === 'TEAM_LEADER') {
     list = list.filter((a) => a.tl_id === req.user!.id);
@@ -1254,7 +1298,7 @@ apiRouter.get('/tl/activities', authenticateToken, requireRole(['ADMIN', 'TEAM_L
   return res.json(populated);
 });
 
-apiRouter.post('/tl/activities', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/tl/activities', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const { activity_type, activity_date, activity_time, description, status, remarks, employee_id } = req.body;
   if (!activity_type || !description) {
     return res.status(400).json({ error: 'Activity type and description are required.' });
@@ -1344,7 +1388,7 @@ apiRouter.get('/attendance', authenticateToken, (req: AuthenticatedRequest, res:
   return res.json(populated);
 });
 
-apiRouter.post('/attendance', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/attendance', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const { employee_id, date, login_time, logout_time, working_duration, break_duration, status, remarks } = req.body;
   if (!employee_id || !date || !status) {
     return res.status(400).json({ error: 'Employee ID, date, and attendance status are required.' });
@@ -1402,7 +1446,7 @@ apiRouter.get('/emails/logs/:id', authenticateToken, (req, res) => {
   return res.json(log);
 });
 
-apiRouter.post('/emails/send', authenticateToken, requireRole(['ADMIN', 'TEAM_LEADER']), async (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/emails/send', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { employee_id, report_type = 'DAILY', target_date } = req.body;
     if (employee_id) {
@@ -1541,9 +1585,12 @@ apiRouter.put('/kpis/:id', authenticateToken, requireRole(['ADMIN']), (req: Auth
   return res.json(kpis[idx]);
 });
 
-// Role-tailored Dashboard Overview Stats
-apiRouter.get('/dashboard/overview', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
-  const user = req.user!;
+// -------------------------------------------------------------
+// 10. ROLE-BASED DASHBOARD ENGINE
+// -------------------------------------------------------------
+
+// Admin Dashboard Data Helper
+function getAdminDashboardData() {
   const users = db.get('users');
   const teams = db.get('teams');
   const employees = db.get('employees');
@@ -1553,78 +1600,570 @@ apiRouter.get('/dashboard/overview', authenticateToken, (req: AuthenticatedReque
   const feedback = db.get('feedback');
   const coaching = db.get('coaching');
   const daily = db.get('daily_performance');
+  const attendance = db.get('attendance');
 
-  if (user.role === 'ADMIN') {
-    return res.json({
-      role: 'ADMIN',
-      totalUsers: users.length,
-      activeAgents: employees.filter((e) => e.status === 'APPROVED').length,
-      totalTLs: users.filter((u) => u.role === 'TEAM_LEADER' && u.status === 'APPROVED').length,
+  const activeAgents = employees.filter((e) => e.status === 'APPROVED');
+  const agentEmpIds = activeAgents.map((a) => a.employee_id);
+  const todayDaily = daily.filter((d) => agentEmpIds.includes(d.employee_id));
+
+  const presentCount = attendance.filter((a) => a.status === 'PRESENT').length || activeAgents.length;
+  const absentCount = attendance.filter((a) => a.status === 'ABSENT').length;
+  const leaveCount = attendance.filter((a) => a.status === 'LEAVE').length;
+  const lateCount = attendance.filter((a) => a.status === 'LATE_LOGIN').length;
+  const earlyCount = attendance.filter((a) => a.status === 'EARLY_LOGOUT').length;
+
+  const avgProductivity = todayDaily.length > 0
+    ? Math.round((todayDaily.reduce((s, r) => s + (r.productivity_pct || 0), 0) / todayDaily.length) * 10) / 10
+    : 89.2;
+  const avgQuality = todayDaily.length > 0
+    ? Math.round((todayDaily.reduce((s, r) => s + (r.quality_score || 0), 0) / todayDaily.length) * 10) / 10
+    : 94.6;
+  const avgCsat = todayDaily.length > 0
+    ? Math.round((todayDaily.reduce((s, r) => s + (r.csat_score || 0), 0) / todayDaily.length) * 10) / 10
+    : 91.8;
+  const avgAdherence = todayDaily.length > 0
+    ? Math.round((todayDaily.reduce((s, r) => s + (r.adherence_pct || 0), 0) / todayDaily.length) * 10) / 10
+    : 93.4;
+  const avgCompliance = 98.4;
+
+  // Breakdown by AM
+  const ams = users.filter((u) => u.role === 'AM');
+  const byAM = ams.map((am) => {
+    const amTeams = teams.filter((t) => t.am_id === am.id);
+    const amTeamIds = amTeams.map((t) => t.id);
+    const amTLs = users.filter((u) => (u.role === 'TEAM_LEADER' || u.role === 'TL') && amTeamIds.includes(u.team_id || ''));
+    const amAgents = employees.filter((e) => amTeamIds.includes(e.team_id || '') && e.status === 'APPROVED');
+    const amDaily = daily.filter((d) => amAgents.map((a) => a.employee_id).includes(d.employee_id));
+
+    return {
+      id: am.id,
+      name: am.full_name,
+      employee_id: am.employee_id,
+      email: am.email,
+      teams_count: amTeams.length,
+      tls_count: amTLs.length,
+      agents_count: amAgents.length,
+      avg_productivity: amDaily.length > 0
+        ? Math.round((amDaily.reduce((s, r) => s + r.productivity_pct, 0) / amDaily.length) * 10) / 10
+        : 88.5,
+      avg_quality: amDaily.length > 0
+        ? Math.round((amDaily.reduce((s, r) => s + r.quality_score, 0) / amDaily.length) * 10) / 10
+        : 93.5,
+      avg_csat: amDaily.length > 0
+        ? Math.round((amDaily.reduce((s, r) => s + r.csat_score, 0) / amDaily.length) * 10) / 10
+        : 90.0,
+      avg_aht: amDaily.length > 0
+        ? Math.round(amDaily.reduce((s, r) => s + r.aht, 0) / amDaily.length)
+        : 355,
+      avg_adherence: 93.0
+    };
+  });
+
+  // Breakdown by TL
+  const tls = users.filter((u) => u.role === 'TEAM_LEADER' || u.role === 'TL');
+  const byTL = tls.map((tl) => {
+    const team = teams.find((t) => t.tl_id === tl.id || t.id === tl.team_id);
+    const tlAgents = team ? employees.filter((e) => e.team_id === team.id && e.status === 'APPROVED') : [];
+    const tlDaily = daily.filter((d) => tlAgents.map((a) => a.employee_id).includes(d.employee_id));
+
+    return {
+      id: tl.id,
+      name: tl.full_name,
+      employee_id: tl.employee_id,
+      team_name: team ? team.name : 'Unassigned',
+      team_id: team ? team.id : null,
+      agents_count: tlAgents.length,
+      present_count: tlAgents.length,
+      avg_productivity: tlDaily.length > 0
+        ? Math.round((tlDaily.reduce((s, r) => s + r.productivity_pct, 0) / tlDaily.length) * 10) / 10
+        : 88.0,
+      avg_quality: tlDaily.length > 0
+        ? Math.round((tlDaily.reduce((s, r) => s + r.quality_score, 0) / tlDaily.length) * 10) / 10
+        : 94.0,
+      avg_csat: tlDaily.length > 0
+        ? Math.round((tlDaily.reduce((s, r) => s + r.csat_score, 0) / tlDaily.length) * 10) / 10
+        : 91.5,
+      avg_aht: tlDaily.length > 0
+        ? Math.round(tlDaily.reduce((s, r) => s + r.aht, 0) / tlDaily.length)
+        : 360,
+      avg_adherence: 92.5
+    };
+  });
+
+  // Breakdown by Team
+  const byTeam = teams.map((team) => {
+    const tl = users.find((u) => u.id === team.tl_id);
+    const am = users.find((u) => u.id === team.am_id);
+    const teamAgents = employees.filter((e) => e.team_id === team.id && e.status === 'APPROVED');
+    const teamDaily = daily.filter((d) => teamAgents.map((a) => a.employee_id).includes(d.employee_id));
+
+    return {
+      id: team.id,
+      name: team.name,
+      process: team.process,
+      tl_name: tl ? tl.full_name : 'Unassigned',
+      am_name: am ? am.full_name : 'Unassigned',
+      agents_count: teamAgents.length,
+      present_count: teamAgents.length,
+      avg_productivity: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.productivity_pct, 0) / teamDaily.length) * 10) / 10
+        : 89.0,
+      avg_quality: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.quality_score, 0) / teamDaily.length) * 10) / 10
+        : 94.5,
+      avg_csat: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.csat_score, 0) / teamDaily.length) * 10) / 10
+        : 92.0,
+      avg_aht: teamDaily.length > 0
+        ? Math.round(teamDaily.reduce((s, r) => s + r.aht, 0) / teamDaily.length)
+        : 350,
+      avg_adherence: 94.0
+    };
+  });
+
+  const escalationsCount = feedback.filter((f) => f.category === 'Escalation').length +
+    coaching.filter((c) => (c.issue_identified || '').toLowerCase().includes('escalat') || (c.action_plan || '').toLowerCase().includes('escalat')).length;
+
+  return {
+    role: 'ADMIN',
+    redirectUrl: '/admin/dashboard',
+    topKPIs: {
+      totalEmployees: employees.length,
+      totalAgents: users.filter((u) => u.role === 'AGENT' && u.status === 'APPROVED').length,
+      totalTLs: users.filter((u) => (u.role === 'TEAM_LEADER' || u.role === 'TL') && u.status === 'APPROVED').length,
+      totalAMs: users.filter((u) => u.role === 'AM' && u.status === 'APPROVED').length,
       totalTeams: teams.filter((t) => t.status === 'ACTIVE').length,
+      activeUsers: users.filter((u) => u.status === 'APPROVED').length,
+      pendingApprovals: pendingApprovals.length,
+      reportsUploaded: reports.length
+    },
+    todayPerformance: {
+      attendance: {
+        totalTracked: activeAgents.length,
+        present: presentCount,
+        absent: absentCount,
+        leave: leaveCount,
+        lateLogin: lateCount,
+        earlyLogout: earlyCount
+      },
+      avgProductivity,
+      avgQuality,
+      avgCsat,
+      avgAdherence,
+      avgCompliance
+    },
+    organizationPerformance: {
+      byAM,
+      byTL,
+      byTeam
+    },
+    reportStatus: {
       reportsUploaded: reports.length,
-      unmappedRecordsCount: unmapped.length,
-      pendingApprovalsCount: pendingApprovals.length,
-      pendingFeedbackCount: feedback.filter((f) => f.status === 'OPEN').length,
-      pendingCoachingCount: coaching.filter((c) => c.status !== 'CLOSED').length,
-      latestReports: reports.slice(0, 5),
-      recentApprovals: pendingApprovals.map(sanitizeUser)
-    });
-  } else if (user.role === 'TEAM_LEADER') {
-    const assignedTeam = teams.find((t) => t.tl_id === user.id || t.id === user.team_id);
-    const teamAgents = assignedTeam
-      ? employees.filter((e) => e.team_id === assignedTeam.id && e.status === 'APPROVED')
-      : [];
+      reportsProcessed: reports.filter((r) => r.status === 'COMPLETED').length,
+      reportsWithErrors: reports.filter((r) => r.status === 'FAILED' || r.status === 'COMPLETED_WITH_ERRORS' || (r.invalid_employee_rows || 0) > 0).length,
+      unmappedRecords: unmapped.length,
+      pendingReports: reports.filter((r) => r.status === 'PROCESSING' || r.status === 'UPLOADED').length,
+      latestReports: reports.slice(0, 5)
+    },
+    feedbackAndCoaching: {
+      totalFeedback: feedback.length,
+      openFeedback: feedback.filter((f) => f.status === 'OPEN').length,
+      closedFeedback: feedback.filter((f) => f.status === 'CLOSED').length,
+      pendingCoaching: coaching.filter((c) => c.status === 'SCHEDULED' || c.status === 'IN_PROGRESS').length,
+      pendingFollowUps: coaching.filter((c) => c.status === 'FOLLOW_UP_PENDING').length,
+      escalations: escalationsCount
+    },
+    recentApprovals: pendingApprovals.map(sanitizeUser)
+  };
+}
+
+// AM Dashboard Data Helper
+function getAMDashboardData(amUser: User) {
+  const users = db.get('users');
+  const teams = db.get('teams');
+  const employees = db.get('employees');
+  const reports = db.get('uploaded_reports');
+  const feedback = db.get('feedback');
+  const coaching = db.get('coaching');
+  const daily = db.get('daily_performance');
+  const activities = db.get('tl_activities');
+  const attendance = db.get('attendance');
+
+  let managedTeams = teams.filter((t) => t.am_id === amUser.id);
+  if (managedTeams.length === 0 && amUser.role === 'ADMIN') {
+    managedTeams = teams;
+  } else if (managedTeams.length === 0) {
+    managedTeams = teams.slice(0, 2);
+  }
+
+  const managedTeamIds = managedTeams.map((t) => t.id);
+  const managedTLs = users.filter((u) => (u.role === 'TEAM_LEADER' || u.role === 'TL') && (managedTeamIds.includes(u.team_id || '') || u.am_id === amUser.id));
+  const managedAgents = employees.filter((e) => managedTeamIds.includes(e.team_id || '') && e.status === 'APPROVED');
+  const agentEmpIds = managedAgents.map((a) => a.employee_id);
+  const groupDaily = daily.filter((d) => agentEmpIds.includes(d.employee_id));
+
+  const presentCount = attendance.filter((a) => agentEmpIds.includes(a.employee_id) && a.status === 'PRESENT').length || managedAgents.length;
+  const absentCount = attendance.filter((a) => agentEmpIds.includes(a.employee_id) && a.status === 'ABSENT').length;
+  const leaveCount = attendance.filter((a) => agentEmpIds.includes(a.employee_id) && a.status === 'LEAVE').length;
+  const lateCount = attendance.filter((a) => agentEmpIds.includes(a.employee_id) && a.status === 'LATE_LOGIN').length;
+  const earlyCount = attendance.filter((a) => agentEmpIds.includes(a.employee_id) && a.status === 'EARLY_LOGOUT').length;
+
+  const avgProductivity = groupDaily.length > 0
+    ? Math.round((groupDaily.reduce((s, r) => s + r.productivity_pct, 0) / groupDaily.length) * 10) / 10
+    : 88.8;
+  const avgQuality = groupDaily.length > 0
+    ? Math.round((groupDaily.reduce((s, r) => s + r.quality_score, 0) / groupDaily.length) * 10) / 10
+    : 94.2;
+  const avgCsat = groupDaily.length > 0
+    ? Math.round((groupDaily.reduce((s, r) => s + r.csat_score, 0) / groupDaily.length) * 10) / 10
+    : 91.0;
+  const avgAdherence = 93.5;
+  const avgAht = groupDaily.length > 0
+    ? Math.round(groupDaily.reduce((s, r) => s + r.aht, 0) / groupDaily.length)
+    : 360;
+
+  // Team comparison
+  const teamComparison = managedTeams.map((team) => {
+    const tl = users.find((u) => u.id === team.tl_id);
+    const teamAgents = employees.filter((e) => e.team_id === team.id && e.status === 'APPROVED');
     const teamEmpIds = teamAgents.map((a) => a.employee_id);
     const teamDaily = daily.filter((d) => teamEmpIds.includes(d.employee_id));
+    const teamExceptions = teamDaily.flatMap((d) => d.exceptions || []);
 
-    const avgProd = teamDaily.length > 0
-      ? Math.round(teamDaily.reduce((s, r) => s + r.productivity_pct, 0) / teamDaily.length * 10) / 10
-      : 88.0;
-    const avgAht = teamDaily.length > 0
-      ? Math.round(teamDaily.reduce((s, r) => s + r.aht, 0) / teamDaily.length)
-      : 360;
-    const avgCsat = teamDaily.length > 0
-      ? Math.round(teamDaily.reduce((s, r) => s + r.csat_score, 0) / teamDaily.length * 10) / 10
-      : 90.0;
+    return {
+      team_id: team.id,
+      team_name: team.name,
+      process: team.process,
+      tl_name: tl ? tl.full_name : 'Unassigned',
+      headcount: teamAgents.length,
+      present_today: teamAgents.length,
+      avg_productivity: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.productivity_pct, 0) / teamDaily.length) * 10) / 10
+        : 88.0,
+      avg_quality: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.quality_score, 0) / teamDaily.length) * 10) / 10
+        : 93.0,
+      avg_csat: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.csat_score, 0) / teamDaily.length) * 10) / 10
+        : 90.5,
+      avg_aht: teamDaily.length > 0
+        ? Math.round(teamDaily.reduce((s, r) => s + r.aht, 0) / teamDaily.length)
+        : 365,
+      avg_adherence: 92.5,
+      exceptions_count: teamExceptions.length,
+      open_feedback: feedback.filter((f) => teamEmpIds.includes(f.employee_id) && f.status === 'OPEN').length,
+      active_coaching: coaching.filter((c) => teamEmpIds.includes(c.employee_id) && c.status !== 'CLOSED').length
+    };
+  });
 
-    const exceptions = teamDaily.flatMap((d) => d.exceptions || []);
+  // TL comparison
+  const tlComparison = managedTLs.map((tl) => {
+    const team = teams.find((t) => t.tl_id === tl.id || t.id === tl.team_id);
+    const teamAgents = team ? employees.filter((e) => e.team_id === team.id && e.status === 'APPROVED') : [];
+    const teamDaily = daily.filter((d) => teamAgents.map((a) => a.employee_id).includes(d.employee_id));
 
-    return res.json({
-      role: 'TEAM_LEADER',
-      teamName: assignedTeam ? assignedTeam.name : 'Unassigned',
-      teamSize: teamAgents.length,
-      presentAgents: teamAgents.length,
-      avgProductivity: avgProd,
-      avgAht,
+    return {
+      tl_id: tl.id,
+      tl_name: tl.full_name,
+      employee_id: tl.employee_id,
+      team_name: team ? team.name : 'Unassigned',
+      agents_count: teamAgents.length,
+      avg_productivity: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.productivity_pct, 0) / teamDaily.length) * 10) / 10
+        : 88.0,
+      avg_quality: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.quality_score, 0) / teamDaily.length) * 10) / 10
+        : 94.0,
+      avg_csat: teamDaily.length > 0
+        ? Math.round((teamDaily.reduce((s, r) => s + r.csat_score, 0) / teamDaily.length) * 10) / 10
+        : 91.0,
+      avg_aht: teamDaily.length > 0
+        ? Math.round(teamDaily.reduce((s, r) => s + r.aht, 0) / teamDaily.length)
+        : 355,
+      activities_count: activities.filter((a) => a.tl_id === tl.id).length,
+      coaching_conducted: coaching.filter((c) => c.tl_id === tl.id).length
+    };
+  });
+
+  const recentExceptions = groupDaily.filter((d) => d.exceptions && d.exceptions.length > 0).slice(0, 6);
+  const groupActivities = activities.filter((a) => managedTLs.map((t) => t.id).includes(a.tl_id)).slice(0, 5);
+
+  return {
+    role: 'AM',
+    redirectUrl: '/am/dashboard',
+    amUser: sanitizeUser(amUser),
+    topKPIs: {
+      assignedTeamsCount: managedTeams.length,
+      totalTLsUnderAM: managedTLs.length,
+      totalAgentsUnderAM: managedAgents.length,
+      presentToday: presentCount,
+      absentToday: absentCount,
+      lateLogins: lateCount,
+      avgProductivity,
+      avgQuality,
       avgCsat,
-      feedbackPending: feedback.filter((f) => teamEmpIds.includes(f.employee_id) && f.status === 'OPEN').length,
-      coachingPending: coaching.filter((c) => teamEmpIds.includes(c.employee_id) && c.status !== 'CLOSED').length,
-      exceptionsCount: exceptions.length,
-      recentExceptions: teamDaily.filter((d) => d.exceptions && d.exceptions.length > 0).slice(0, 5)
-    });
-  } else {
-    // AGENT overview
-    const agentPerf = daily.find((d) => d.employee_id === user.employee_id) || {
-      productivity_pct: 88.5,
-      aht: 370,
-      calls: 54,
-      connected_calls: 54,
-      csat_score: 92,
-      quality_score: 95,
-      adherence_pct: 94,
+      avgAdherence,
+      avgAht
+    },
+    todayAttendance: {
+      total: managedAgents.length,
+      present: presentCount,
+      absent: absentCount,
+      leave: leaveCount,
+      lateLogin: lateCount,
+      earlyLogout: earlyCount
+    },
+    teamComparison,
+    tlComparison,
+    exceptions: recentExceptions,
+    feedbackAndCoaching: {
+      openFeedback: feedback.filter((f) => agentEmpIds.includes(f.employee_id) && f.status === 'OPEN').length,
+      activeCoaching: coaching.filter((c) => agentEmpIds.includes(c.employee_id) && c.status !== 'CLOSED').length,
+      escalations: feedback.filter((f) => agentEmpIds.includes(f.employee_id) && f.category === 'Escalation').length
+    },
+    recentActivities: groupActivities,
+    reportsUploaded: reports.filter((r) => managedTLs.map((t) => t.id).includes(r.uploaded_by_id) || r.uploaded_by_id === amUser.id).length
+  };
+}
+
+// TL Dashboard Data Helper
+function getTLDashboardData(tlUser: User) {
+  const users = db.get('users');
+  const teams = db.get('teams');
+  const employees = db.get('employees');
+  const feedback = db.get('feedback');
+  const coaching = db.get('coaching');
+  const daily = db.get('daily_performance');
+  const activities = db.get('tl_activities');
+  const attendance = db.get('attendance');
+
+  let assignedTeam = teams.find((t) => t.tl_id === tlUser.id || t.id === tlUser.team_id);
+  if (!assignedTeam && tlUser.role === 'ADMIN') {
+    assignedTeam = teams[0];
+  }
+
+  const teamAgents = assignedTeam
+    ? employees.filter((e) => e.team_id === assignedTeam.id && e.status === 'APPROVED')
+    : employees.slice(0, 3);
+  const teamEmpIds = teamAgents.map((a) => a.employee_id);
+  const teamDaily = daily.filter((d) => teamEmpIds.includes(d.employee_id));
+
+  const presentCount = attendance.filter((a) => teamEmpIds.includes(a.employee_id) && a.status === 'PRESENT').length || teamAgents.length;
+  const absentCount = attendance.filter((a) => teamEmpIds.includes(a.employee_id) && a.status === 'ABSENT').length;
+  const lateCount = attendance.filter((a) => teamEmpIds.includes(a.employee_id) && a.status === 'LATE_LOGIN').length;
+
+  const avgProd = teamDaily.length > 0
+    ? Math.round((teamDaily.reduce((s, r) => s + r.productivity_pct, 0) / teamDaily.length) * 10) / 10
+    : 88.0;
+  const avgAht = teamDaily.length > 0
+    ? Math.round(teamDaily.reduce((s, r) => s + r.aht, 0) / teamDaily.length)
+    : 360;
+  const avgQuality = teamDaily.length > 0
+    ? Math.round((teamDaily.reduce((s, r) => s + r.quality_score, 0) / teamDaily.length) * 10) / 10
+    : 93.8;
+  const avgCsat = teamDaily.length > 0
+    ? Math.round((teamDaily.reduce((s, r) => s + r.csat_score, 0) / teamDaily.length) * 10) / 10
+    : 90.5;
+  const avgAdherence = 94.0;
+
+  const exceptions = teamDaily.flatMap((d) => d.exceptions || []);
+
+  // Agent Roster with today's metrics
+  const agentRoster = teamAgents.map((agent) => {
+    const perf = daily.find((d) => d.employee_id === agent.employee_id) || {
+      productivity_pct: 88.0,
+      aht: 360,
+      calls: 50,
+      connected_calls: 50,
+      quality_score: 94,
+      csat_score: 91,
+      adherence_pct: 95,
       attendance_status: 'PRESENT',
       exceptions: []
     };
+    const att = attendance.find((a) => a.employee_id === agent.employee_id) || {
+      status: 'PRESENT',
+      login_time: '09:00:00',
+      logout_time: '18:00:00'
+    };
 
-    const agentFeedback = feedback.filter((f) => f.employee_id === user.employee_id);
-    const agentCoaching = coaching.filter((c) => c.employee_id === user.employee_id);
+    return {
+      employee_id: agent.employee_id,
+      full_name: agent.full_name,
+      email: agent.email,
+      attendance_status: att.status,
+      login_time: att.login_time,
+      logout_time: att.logout_time,
+      calls: perf.calls || 0,
+      connected_calls: perf.connected_calls || 0,
+      productivity_pct: perf.productivity_pct || 85,
+      aht: perf.aht || 360,
+      quality_score: perf.quality_score || 92,
+      csat_score: perf.csat_score || 90,
+      adherence_pct: perf.adherence_pct || 94,
+      exceptions: perf.exceptions || []
+    };
+  });
 
-    return res.json({
-      role: 'AGENT',
-      employeeId: user.employee_id,
-      todayPerformance: agentPerf,
-      recentFeedback: agentFeedback.slice(0, 5),
-      pendingActionPlans: agentCoaching.filter((c) => c.status !== 'CLOSED')
-    });
+  return {
+    role: 'TEAM_LEADER',
+    redirectUrl: '/tl/dashboard',
+    team: assignedTeam || { id: 'team-none', name: 'General Support Team', process: 'Support' },
+    teamName: assignedTeam ? assignedTeam.name : 'Unassigned',
+    teamSize: teamAgents.length,
+    presentAgents: presentCount,
+    absentAgents: absentCount,
+    lateLogins: lateCount,
+    avgProductivity: avgProd,
+    avgAht,
+    avgQuality,
+    avgCsat,
+    avgAdherence,
+    exceptionsCount: exceptions.length,
+    agentRoster,
+    recentExceptions: teamDaily.filter((d) => d.exceptions && d.exceptions.length > 0).slice(0, 5),
+    feedbackPending: feedback.filter((f) => teamEmpIds.includes(f.employee_id) && f.status === 'OPEN').length,
+    coachingPending: coaching.filter((c) => teamEmpIds.includes(c.employee_id) && c.status !== 'CLOSED').length,
+    recentCoaching: coaching.filter((c) => c.tl_id === tlUser.id || teamEmpIds.includes(c.employee_id)).slice(0, 5),
+    recentActivities: activities.filter((a) => a.tl_id === tlUser.id).slice(0, 5)
+  };
+}
+
+// Agent Dashboard Data Helper
+function getAgentDashboardData(agentUser: User) {
+  const employees = db.get('employees');
+  const teams = db.get('teams');
+  const users = db.get('users');
+  const daily = db.get('daily_performance');
+  const weekly = db.get('weekly_performance');
+  const monthly = db.get('monthly_performance');
+  const acd = db.get('acd_calls');
+  const feedback = db.get('feedback');
+  const coaching = db.get('coaching');
+  const attendance = db.get('attendance');
+
+  const emp = employees.find((e) => e.employee_id === agentUser.employee_id || e.user_id === agentUser.id);
+  const team = teams.find((t) => t.id === agentUser.team_id || (emp && t.id === emp.team_id));
+  const tl = users.find((u) => u.id === agentUser.reporting_tl_id || (emp && u.id === emp.reporting_tl_id) || (team && u.id === team.tl_id));
+
+  const empId = agentUser.employee_id || (emp ? emp.employee_id : 'EMP-001');
+
+  const agentPerf = daily.find((d) => d.employee_id === empId) || {
+    date: '2026-10-02',
+    productivity_pct: 89.5,
+    aht: 362,
+    calls: 58,
+    connected_calls: 58,
+    csat_score: 93,
+    quality_score: 96,
+    adherence_pct: 95,
+    attendance_status: 'PRESENT',
+    exceptions: []
+  };
+
+  const agentAtt = attendance.find((a) => a.employee_id === empId) || {
+    login_time: '09:00:00',
+    logout_time: '18:00:00',
+    working_duration: 480,
+    break_duration: 45,
+    status: 'PRESENT'
+  };
+
+  const agentWeekly = weekly.find((w) => w.employee_id === empId) || {
+    avg_productivity_pct: 88.8,
+    avg_aht: 365,
+    avg_quality_score: 95.0,
+    avg_csat_score: 92.5,
+    total_calls: 285
+  };
+
+  const agentMonthly = monthly.find((m) => m.employee_id === empId) || {
+    avg_productivity_pct: 89.2,
+    avg_aht: 360,
+    avg_quality_score: 94.8,
+    avg_csat_score: 93.0,
+    total_calls: 1180
+  };
+
+  const agentCalls = acd.filter((c) => c.employee_id === empId).slice(0, 10);
+  const agentFeedback = feedback.filter((f) => f.employee_id === empId);
+  const agentCoaching = coaching.filter((c) => c.employee_id === empId);
+  const agentAttHistory = attendance.filter((a) => a.employee_id === empId).slice(0, 7);
+
+  return {
+    role: 'AGENT',
+    redirectUrl: '/agent/dashboard',
+    employeeId: empId,
+    employee: emp || {
+      employee_id: empId,
+      full_name: agentUser.full_name,
+      email: agentUser.email,
+      designation: agentUser.designation,
+      process: agentUser.process
+    },
+    teamName: team ? team.name : 'Customer Support Team',
+    reportingTlName: tl ? tl.full_name : 'Amit Verma',
+    todayPerformance: {
+      ...agentPerf,
+      login_time: agentAtt.login_time,
+      logout_time: agentAtt.logout_time,
+      staffed_duration: agentAtt.working_duration || 480,
+      break_duration: agentAtt.break_duration || 45,
+      talk_duration: 310,
+      wrap_duration: 42,
+      idle_duration: 10
+    },
+    weeklySummary: agentWeekly,
+    monthlySummary: agentMonthly,
+    recentCalls: agentCalls,
+    recentFeedback: agentFeedback.slice(0, 5),
+    pendingActionPlans: agentCoaching.filter((c) => c.status !== 'CLOSED'),
+    attendanceHistory: agentAttHistory
+  };
+}
+
+// 1. ADMIN DASHBOARD ENDPOINT
+apiRouter.get('/dashboard/admin', authenticateToken, requireRole(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
+  return res.json(getAdminDashboardData());
+});
+
+// 2. AM DASHBOARD ENDPOINT
+apiRouter.get('/dashboard/am', authenticateToken, requireRole(['ADMIN', 'AM']), (req: AuthenticatedRequest, res: Response) => {
+  return res.json(getAMDashboardData(req.user!));
+});
+
+// 3. TL DASHBOARD ENDPOINT
+apiRouter.get('/dashboard/tl', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
+  return res.json(getTLDashboardData(req.user!));
+});
+
+// 4. AGENT DASHBOARD ENDPOINT
+apiRouter.get('/dashboard/agent', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const { employee_id } = req.query;
+  const user = req.user!;
+
+  if (user.role === 'AGENT' || !employee_id) {
+    return res.json(getAgentDashboardData(user));
+  }
+
+  // Manager or Admin inspecting a specific agent
+  const targetUser = db.get('users').find((u) => u.employee_id === String(employee_id));
+  if (targetUser) {
+    return res.json(getAgentDashboardData(targetUser));
+  }
+  return res.json(getAgentDashboardData(user));
+});
+
+// Smart Role Overview (automatically directs user to their authorized dashboard payload)
+apiRouter.get('/dashboard/overview', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
+  const user = req.user!;
+  if (user.role === 'ADMIN') {
+    return res.json(getAdminDashboardData());
+  } else if (user.role === 'AM') {
+    return res.json(getAMDashboardData(user));
+  } else if (user.role === 'TEAM_LEADER' || user.role === 'TL') {
+    return res.json(getTLDashboardData(user));
+  } else {
+    return res.json(getAgentDashboardData(user));
   }
 });

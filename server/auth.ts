@@ -66,18 +66,42 @@ export function authenticateToken(req: AuthenticatedRequest, res: Response, next
   }
 }
 
+const ROLE_RANK: Record<string, number> = {
+  ADMIN: 4,
+  AM: 3,
+  TEAM_LEADER: 2,
+  TL: 2,
+  AGENT: 1
+};
+
 export function requireRole(allowedRoles: Role[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required.' });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({
-        error: `Access forbidden: ${allowedRoles.join(' or ')} permission required.`
-      });
+    const userRole = req.user.role === 'TL' ? 'TEAM_LEADER' : req.user.role;
+    if (userRole === 'ADMIN') {
+      return next();
     }
 
-    next();
+    const normalizedAllowed = allowedRoles.map((r) => (r === 'TL' ? 'TEAM_LEADER' : r));
+
+    // Direct match
+    if (normalizedAllowed.includes(userRole as any) || allowedRoles.includes(req.user.role)) {
+      return next();
+    }
+
+    // Hierarchical match: if user rank is higher than or equal to lowest required role rank
+    const userRank = ROLE_RANK[userRole] || 1;
+    const minRequiredRank = Math.min(...normalizedAllowed.map((r) => ROLE_RANK[r] || 1));
+
+    if (userRank >= minRequiredRank) {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: `Access forbidden: ${allowedRoles.join(' or ')} permission required.`
+    });
   };
 }

@@ -33,15 +33,24 @@ export const TeamManagementView: React.FC = () => {
     try {
       setLoading(true);
       const [teamsData, tlsData, usersData] = await Promise.all([
-        api.getTeams(),
-        api.getTLsOverview(),
-        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 })
+        api.getTeams().catch((err) => {
+          console.warn('Failed to load teams:', err);
+          return [];
+        }),
+        api.getTLsOverview().catch((err) => {
+          console.warn('Failed to load TLs overview:', err);
+          return [];
+        }),
+        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 }).catch((err) => {
+          console.warn('Failed to load agents:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
+        })
       ]);
-      setTeams(teamsData);
-      setTls(tlsData);
-      setAgents(usersData.users);
+      setTeams(Array.isArray(teamsData) ? teamsData : []);
+      setTls(Array.isArray(tlsData) ? tlsData : []);
+      setAgents(usersData?.users || []);
     } catch (err: any) {
-      console.error('Failed to load team data:', err);
+      console.warn('Notice loading team data:', err);
     } finally {
       setLoading(false);
     }

@@ -122,6 +122,7 @@ class Database {
         process: 'Inbound Support',
         description: 'Primary customer inquiries, billing, and account resolutions',
         tl_id: 'usr-tl-1',
+        am_id: 'usr-am-1',
         status: 'ACTIVE',
         created_at: '2026-01-10T08:00:00.000Z'
       },
@@ -131,12 +132,13 @@ class Database {
         process: 'Technical Support',
         description: 'Advanced technical troubleshooting and enterprise escalations',
         tl_id: 'usr-tl-2',
+        am_id: 'usr-am-1',
         status: 'ACTIVE',
         created_at: '2026-01-15T08:00:00.000Z'
       }
     ];
 
-    // Initial Users: 1 Admin, 2 TLs, 5 Agents
+    // Initial Users: 1 Admin, 1 AM, 2 TLs, 5 Agents
     const users: User[] = [
       {
         id: 'usr-admin-1',
@@ -149,6 +151,7 @@ class Database {
         designation: 'Admin',
         role: 'ADMIN',
         team_id: null,
+        am_id: null,
         process: 'Operations Executive',
         reporting_tl_id: null,
         date_of_joining: '2025-01-01',
@@ -158,6 +161,28 @@ class Database {
         last_login_at: '2026-10-01T09:00:00.000Z',
         created_at: '2025-01-01T08:00:00.000Z',
         updated_at: '2025-01-01T08:00:00.000Z'
+      },
+      {
+        id: 'usr-am-1',
+        username: 'vikram.malhotra',
+        password_hash: hashPassword('AM@12345'),
+        email: 'vikram.malhotra@performanceteam.corp',
+        employee_id: 'EMP-AM-001',
+        full_name: 'Vikram Malhotra',
+        mobile: '+1-555-0105',
+        designation: 'Assistant Manager',
+        role: 'AM',
+        team_id: null,
+        am_id: null,
+        process: 'Customer Operations',
+        reporting_tl_id: null,
+        date_of_joining: '2025-01-10',
+        status: 'APPROVED',
+        failed_logins: 0,
+        lock_until: null,
+        last_login_at: '2026-10-02T06:15:00.000Z',
+        created_at: '2025-01-10T08:00:00.000Z',
+        updated_at: '2025-01-10T08:00:00.000Z'
       },
       {
         id: 'usr-tl-1',
@@ -170,6 +195,7 @@ class Database {
         designation: 'Team Leader',
         role: 'TEAM_LEADER',
         team_id: 'team-alpha',
+        am_id: 'usr-am-1',
         process: 'Inbound Support',
         reporting_tl_id: null,
         date_of_joining: '2025-02-15',
@@ -191,6 +217,7 @@ class Database {
         designation: 'Team Leader',
         role: 'TEAM_LEADER',
         team_id: 'team-beta',
+        am_id: 'usr-am-1',
         process: 'Technical Support',
         reporting_tl_id: null,
         date_of_joining: '2025-03-01',
@@ -320,6 +347,7 @@ class Database {
         mobile: u.mobile,
         designation: u.designation,
         team_id: u.team_id,
+        am_id: u.am_id || 'usr-am-1',
         reporting_tl_id: u.reporting_tl_id,
         process: u.process,
         status: u.status,

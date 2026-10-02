@@ -1,4 +1,4 @@
-export type Role = 'ADMIN' | 'TEAM_LEADER' | 'AGENT';
+export type Role = 'ADMIN' | 'AM' | 'TL' | 'TEAM_LEADER' | 'AGENT';
 export type UserStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'DEACTIVATED';
 export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LEAVE' | 'WEEK_OFF' | 'HALF_DAY' | 'LATE_LOGIN' | 'EARLY_LOGOUT';
 export type FeedbackStatus = 'OPEN' | 'IN_PROGRESS' | 'IMPROVED' | 'CLOSED';
@@ -24,6 +24,7 @@ export interface User {
   designation: string;
   role: Role;
   team_id: string | null;
+  am_id?: string | null;
   process: string;
   reporting_tl_id: string | null;
   date_of_joining: string;
@@ -41,6 +42,8 @@ export interface Team {
   description: string;
   tl_id: string | null;
   tl_name?: string;
+  am_id?: string | null;
+  am_name?: string;
   agent_count?: number;
   status: 'ACTIVE' | 'INACTIVE';
   created_at: string;
@@ -54,6 +57,7 @@ export interface Employee {
   mobile: string;
   designation: string;
   team_id: string | null;
+  am_id?: string | null;
   reporting_tl_id: string | null;
   process: string;
   status: UserStatus;
@@ -261,6 +265,7 @@ export interface UploadedReport {
   id: string;
   file_name: string;
   file_size: number;
+  storage_path?: string;
   report_type: ReportType;
   uploaded_by_id: string;
   uploaded_by_name: string;

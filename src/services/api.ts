@@ -71,7 +71,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 export const api = {
   // Auth
   login: (credentials: { username: string; password: string }) =>
-    request<{ token: string; user: User }>('/auth/login', {
+    request<{ token: string; user: User; redirectUrl?: string }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(credentials)
     }),
@@ -83,13 +83,13 @@ export const api = {
     }),
 
   quickSwitch: (params: { role?: string; username?: string }) =>
-    request<{ token: string; user: User }>('/auth/quick-switch', {
+    request<{ token: string; user: User; redirectUrl?: string }>('/auth/quick-switch', {
       method: 'POST',
       body: JSON.stringify(params)
     }),
 
   getMe: () =>
-    request<{ user: User; teamName: string | null; reportingTlName: string | null }>('/auth/me'),
+    request<{ user: User; redirectUrl?: string; teamName: string | null; reportingTlName: string | null }>('/auth/me'),
 
   logout: () =>
     request<{ message: string }>('/auth/logout', { method: 'POST' }),
@@ -97,6 +97,18 @@ export const api = {
   // Dashboard Overview
   getDashboardOverview: () =>
     request<any>('/dashboard/overview'),
+
+  getAdminDashboard: () =>
+    request<any>('/dashboard/admin'),
+
+  getAMDashboard: () =>
+    request<any>('/dashboard/am'),
+
+  getTLDashboard: () =>
+    request<any>('/dashboard/tl'),
+
+  getAgentDashboard: (employeeId?: string) =>
+    request<any>(employeeId ? `/dashboard/agent?employee_id=${encodeURIComponent(employeeId)}` : '/dashboard/agent'),
 
   // Admin User Management
   getUsers: (params?: { search?: string; role?: string; status?: string; team_id?: string; page?: number; limit?: number }) => {
@@ -140,6 +152,9 @@ export const api = {
 
   getTLsOverview: () =>
     request<any[]>('/admin/tls'),
+
+  getAMsOverview: () =>
+    request<any[]>('/admin/ams'),
 
   // Report Upload & Processing
   uploadReport: (formData: FormData) =>

@@ -8,12 +8,14 @@ interface AuthContextType {
   reportingTlName: string | null;
   loading: boolean;
   isAdmin: boolean;
+  isAM: boolean;
   isTL: boolean;
   isAgent: boolean;
-  login: (credentials: { username: string; password: string }) => Promise<void>;
+  redirectUrl: string;
+  login: (credentials: { username: string; password: string }) => Promise<string>;
   register: (data: any) => Promise<{ message: string; status: string }>;
   logout: () => Promise<void>;
-  quickSwitch: (role?: string, username?: string) => Promise<void>;
+  quickSwitch: (role?: string, username?: string) => Promise<string>;
   refreshUser: () => Promise<void>;
 }
 
@@ -24,6 +26,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [teamName, setTeamName] = useState<string | null>(null);
   const [reportingTlName, setReportingTlName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const getDashboardPath = (u: User | null): string => {
+    if (!u) return '/';
+    if (u.role === 'ADMIN') return '/admin/dashboard';
+    if (u.role === 'AM') return '/am/dashboard';
+    if (u.role === 'TEAM_LEADER' || u.role === 'TL') return '/tl/dashboard';
+    return '/agent/dashboard';
+  };
 
   const fetchProfile = async () => {
     try {
@@ -49,24 +59,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchProfile();
   }, []);
 
-  const login = async (credentials: { username: string; password: string }) => {
+  const login = async (credentials: { username: string; password: string }): Promise<string> => {
     const res = await api.login(credentials);
     setStoredToken(res.token);
     setUser(res.user);
+    const dest = res.redirectUrl || getDashboardPath(res.user);
     await fetchProfile();
+    return dest;
   };
 
   const register = async (data: any) => {
     return api.register(data);
   };
 
-  const quickSwitch = async (role?: string, username?: string) => {
+  const quickSwitch = async (role?: string, username?: string): Promise<string> => {
     setLoading(true);
     try {
       const res = await api.quickSwitch({ role, username });
       setStoredToken(res.token);
       setUser(res.user);
+      const dest = res.redirectUrl || getDashboardPath(res.user);
       await fetchProfile();
+      return dest;
     } finally {
       setLoading(false);
     }
@@ -86,8 +100,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const isAdmin = user?.role === 'ADMIN';
-  const isTL = user?.role === 'TEAM_LEADER';
+  const isAM = user?.role === 'AM';
+  const isTL = user?.role === 'TEAM_LEADER' || user?.role === 'TL';
   const isAgent = user?.role === 'AGENT';
+  const redirectUrl = getDashboardPath(user);
 
   return (
     <AuthContext.Provider
@@ -97,8 +113,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         reportingTlName,
         loading,
         isAdmin,
+        isAM,
         isTL,
         isAgent,
+        redirectUrl,
         login,
         register,
         logout,

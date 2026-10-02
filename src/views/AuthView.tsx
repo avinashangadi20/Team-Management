@@ -207,6 +207,18 @@ export const AuthView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
+                      setUsername('vikram.malhotra');
+                      setPassword('AM@12345');
+                    }}
+                    className="p-2.5 border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 rounded-lg text-left transition-colors cursor-pointer"
+                  >
+                    <span className="font-bold text-indigo-900 block">AM: Vikram Malhotra</span>
+                    <span className="text-[10px] text-indigo-700 font-mono">vikram.malhotra / AM@12345</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
                       setUsername('amit.verma');
                       setPassword('TL@12345');
                     }}
@@ -226,18 +238,6 @@ export const AuthView: React.FC = () => {
                   >
                     <span className="font-bold text-blue-900 block">Agent: Rahul Sharma</span>
                     <span className="text-[10px] text-blue-700 font-mono">rahul.sharma / Agent@12345</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUsername('david.chen');
-                      setPassword('Agent@12345');
-                    }}
-                    className="p-2.5 border border-amber-200 bg-amber-50/70 hover:bg-amber-100 rounded-lg text-left transition-colors cursor-pointer"
-                  >
-                    <span className="font-bold text-amber-900 block">Agent (Exceptions): David</span>
-                    <span className="text-[10px] text-amber-700 font-mono">david.chen / Agent@12345</span>
                   </button>
                 </div>
               </div>
@@ -354,6 +354,7 @@ export const AuthView: React.FC = () => {
                     >
                       <option value="Agent">Agent</option>
                       <option value="Team Leader">Team Leader (Requires Admin Approval)</option>
+                      <option value="Assistant Manager">Assistant Manager (Requires Admin Approval)</option>
                       <option value="Admin">Admin (Requires Admin Approval)</option>
                     </select>
                   </div>
