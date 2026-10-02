@@ -1,0 +1,6 @@
+{
+  "name": "Employee Performance & Team Management System",
+  "description": "Enterprise role-based employee performance tracking, team leadership, multi-source operational report ingestion, and automated performance reporting.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
