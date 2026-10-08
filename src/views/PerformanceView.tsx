@@ -42,21 +42,30 @@ export const PerformanceView: React.FC<{ onSelectEmployee?: (empId: string) => v
         const res = await api.getDailyPerformance({
           date: filterDate,
           employee_id: filterEmpId || undefined
+        }).catch((err) => {
+          console.warn('Failed to load daily performance:', err);
+          return [];
         });
-        setDailyData(res);
+        setDailyData(Array.isArray(res) ? res : []);
       } else if (viewFreq === 'WEEKLY') {
         const res = await api.getWeeklyPerformance({
           employee_id: filterEmpId || undefined
+        }).catch((err) => {
+          console.warn('Failed to load weekly performance:', err);
+          return [];
         });
-        setWeeklyData(res);
+        setWeeklyData(Array.isArray(res) ? res : []);
       } else {
         const res = await api.getMonthlyPerformance({
           employee_id: filterEmpId || undefined
+        }).catch((err) => {
+          console.warn('Failed to load monthly performance:', err);
+          return [];
         });
-        setMonthlyData(res);
+        setMonthlyData(Array.isArray(res) ? res : []);
       }
     } catch (err: any) {
-      console.error('Error fetching performance:', err);
+      console.warn('Notice fetching performance:', err);
     } finally {
       setLoading(false);
     }

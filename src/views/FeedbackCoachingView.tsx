@@ -61,15 +61,24 @@ export const FeedbackCoachingView: React.FC = () => {
     try {
       setLoading(true);
       const [fbData, coachData, usersData] = await Promise.all([
-        api.getFeedback(),
-        api.getCoaching(),
-        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 })
+        api.getFeedback().catch((err) => {
+          console.warn('Failed to load feedback:', err);
+          return [];
+        }),
+        api.getCoaching().catch((err) => {
+          console.warn('Failed to load coaching:', err);
+          return [];
+        }),
+        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 }).catch((err) => {
+          console.warn('Failed to load agents:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
+        })
       ]);
-      setFeedbackList(fbData);
-      setCoachingList(coachData);
-      setAgents(usersData.users);
+      setFeedbackList(Array.isArray(fbData) ? fbData : []);
+      setCoachingList(Array.isArray(coachData) ? coachData : []);
+      setAgents(usersData?.users || []);
     } catch (err: any) {
-      console.error('Failed to load feedback/coaching:', err);
+      console.warn('Notice loading feedback/coaching:', err);
     } finally {
       setLoading(false);
     }

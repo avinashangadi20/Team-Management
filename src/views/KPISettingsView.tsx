@@ -14,10 +14,13 @@ export const KPISettingsView: React.FC = () => {
   const fetchKpis = async () => {
     try {
       setLoading(true);
-      const data = await api.getKPITargets();
-      setKpis(data);
+      const data = await api.getKPITargets().catch((err) => {
+        console.warn('Failed to load KPIs:', err);
+        return [];
+      });
+      setKpis(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      console.error('Failed to load KPIs:', err);
+      console.warn('Notice loading KPIs:', err);
     } finally {
       setLoading(false);
     }

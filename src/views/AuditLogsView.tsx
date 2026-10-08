@@ -17,10 +17,13 @@ export const AuditLogsView: React.FC = () => {
         module: moduleFilter || undefined,
         action: actionFilter || undefined,
         username: userFilter || undefined
+      }).catch((err) => {
+        console.warn('Failed to load audit logs:', err);
+        return [];
       });
-      setLogs(data);
+      setLogs(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      console.error('Failed to load audit logs:', err);
+      console.warn('Notice loading audit logs:', err);
     } finally {
       setLoading(false);
     }

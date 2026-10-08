@@ -37,15 +37,24 @@ export const EmailSystemView: React.FC = () => {
     try {
       setLoading(true);
       const [logsData, settingsData, usersData] = await Promise.all([
-        api.getEmailLogs(),
-        api.getEmailSettings(),
-        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 })
+        api.getEmailLogs().catch((err) => {
+          console.warn('Failed to load email logs:', err);
+          return [];
+        }),
+        api.getEmailSettings().catch((err) => {
+          console.warn('Failed to load email settings:', err);
+          return null;
+        }),
+        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 }).catch((err) => {
+          console.warn('Failed to load agents:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
+        })
       ]);
-      setLogs(logsData);
-      setSettings(settingsData);
-      setAgents(usersData.users);
+      setLogs(Array.isArray(logsData) ? logsData : []);
+      if (settingsData) setSettings(settingsData);
+      setAgents(usersData?.users || []);
     } catch (err: any) {
-      console.error('Failed to load email system data:', err);
+      console.warn('Notice loading email system data:', err);
     } finally {
       setLoading(false);
     }

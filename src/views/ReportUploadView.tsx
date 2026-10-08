@@ -47,14 +47,24 @@ export const ReportUploadView: React.FC = () => {
     try {
       setLoadingData(true);
       const [histData, unmappedData, usersData] = await Promise.all([
-        api.getReportHistory(),
-        api.getUnmappedRecords(),
-        api.getUsers({ limit: 100 })
+        api.getReportHistory().catch((err) => {
+          console.warn('Failed to load report history:', err);
+          return [];
+        }),
+        api.getUnmappedRecords().catch((err) => {
+          console.warn('Failed to load unmapped records:', err);
+          return [];
+        }),
+        api.getUsers({ limit: 100 }).catch((err) => {
+          console.warn('Failed to load agents for mapping:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
+        })
       ]);
-      setHistory(histData);
-      setUnmapped(unmappedData);
+      setHistory(Array.isArray(histData) ? histData : []);
+      setUnmapped(Array.isArray(unmappedData) ? unmappedData : []);
+      const userList = usersData?.users || [];
       setEmployees(
-        usersData.users
+        userList
           .filter((u) => u.role === 'AGENT')
           .map((u) => ({
             employee_id: u.employee_id,
@@ -72,7 +82,7 @@ export const ReportUploadView: React.FC = () => {
           }))
       );
     } catch (err: any) {
-      console.error('Failed to load history:', err);
+      console.warn('Notice loading report history:', err);
     } finally {
       setLoadingData(false);
     }

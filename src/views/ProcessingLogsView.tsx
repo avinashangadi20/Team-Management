@@ -26,10 +26,13 @@ export const ProcessingLogsView: React.FC = () => {
   const fetchReports = async () => {
     try {
       setLoading(true);
-      const res = await api.getReportHistory();
-      setReports(res);
+      const res = await api.getReportHistory().catch((err) => {
+        console.warn('Failed to load processing logs:', err);
+        return [];
+      });
+      setReports(Array.isArray(res) ? res : []);
     } catch (err: any) {
-      console.error('Failed to load processing logs:', err);
+      console.warn('Notice loading processing logs:', err);
     } finally {
       setLoading(false);
     }
@@ -49,10 +52,13 @@ export const ProcessingLogsView: React.FC = () => {
     try {
       setExpandedReportId(reportId);
       setLoadingErrors(true);
-      const errors = await api.getReportErrors(reportId);
-      setReportErrors(errors);
+      const errors = await api.getReportErrors(reportId).catch((err) => {
+        console.warn('Failed to load errors:', err);
+        return [];
+      });
+      setReportErrors(Array.isArray(errors) ? errors : []);
     } catch (err: any) {
-      console.error('Failed to load errors:', err);
+      console.warn('Notice loading report errors:', err);
     } finally {
       setLoadingErrors(false);
     }

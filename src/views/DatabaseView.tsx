@@ -69,10 +69,10 @@ export const DatabaseView: React.FC = () => {
         records = await api.getAuditLogs({});
       }
 
-      setTableData(records);
-      setStats((prev) => ({ ...prev, [activeTable]: records.length }));
+      setTableData(Array.isArray(records) ? records : []);
+      setStats((prev) => ({ ...prev, [activeTable]: Array.isArray(records) ? records.length : 0 }));
     } catch (err: any) {
-      console.error('Failed to load table records:', err);
+      console.warn('Notice loading table records:', err);
     } finally {
       setLoading(false);
     }

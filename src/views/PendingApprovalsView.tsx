@@ -26,10 +26,13 @@ export const PendingApprovalsView: React.FC = () => {
   const fetchPending = async () => {
     try {
       setLoading(true);
-      const res = await api.getUsers({ status: 'PENDING', limit: 100 });
-      setPendingUsers(res.users);
+      const res = await api.getUsers({ status: 'PENDING', limit: 100 }).catch((err) => {
+        console.warn('Failed to load pending users:', err);
+        return { users: [], total: 0, page: 1, totalPages: 1 };
+      });
+      setPendingUsers(res?.users || []);
     } catch (err: any) {
-      console.error('Failed to load pending users:', err);
+      console.warn('Notice loading pending users:', err);
     } finally {
       setLoading(false);
     }

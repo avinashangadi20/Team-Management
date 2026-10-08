@@ -29,16 +29,23 @@ export const AttendanceView: React.FC = () => {
     try {
       setLoading(true);
       const [attData, usersData] = await Promise.all([
-        api.getAttendance({ date: dateFilter || undefined, status: statusFilter || undefined }),
-        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 })
+        api.getAttendance({ date: dateFilter || undefined, status: statusFilter || undefined }).catch((err) => {
+          console.warn('Failed to load attendance:', err);
+          return [];
+        }),
+        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 }).catch((err) => {
+          console.warn('Failed to load agents:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
+        })
       ]);
-      setAttendanceList(attData);
-      setAgents(usersData.users);
-      if (usersData.users.length > 0 && !attForm.employee_id) {
-        setAttForm((prev) => ({ ...prev, employee_id: usersData.users[0].employee_id }));
+      setAttendanceList(Array.isArray(attData) ? attData : []);
+      const userList = usersData?.users || [];
+      setAgents(userList);
+      if (userList.length > 0 && !attForm.employee_id) {
+        setAttForm((prev) => ({ ...prev, employee_id: userList[0].employee_id }));
       }
     } catch (err: any) {
-      console.error('Failed to load attendance:', err);
+      console.warn('Notice loading attendance:', err);
     } finally {
       setLoading(false);
     }

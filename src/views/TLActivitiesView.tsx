@@ -26,13 +26,19 @@ export const TLActivitiesView: React.FC = () => {
     try {
       setLoading(true);
       const [actData, usersData] = await Promise.all([
-        api.getTLActivities(),
-        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 })
+        api.getTLActivities().catch((err) => {
+          console.warn('Failed to load TL activities:', err);
+          return [];
+        }),
+        api.getUsers({ role: 'AGENT', status: 'APPROVED', limit: 100 }).catch((err) => {
+          console.warn('Failed to load agents:', err);
+          return { users: [], total: 0, page: 1, totalPages: 1 };
+        })
       ]);
-      setActivities(actData);
-      setAgents(usersData.users);
+      setActivities(Array.isArray(actData) ? actData : []);
+      setAgents(usersData?.users || []);
     } catch (err: any) {
-      console.error('Failed to load TL activities:', err);
+      console.warn('Notice loading TL activities:', err);
     } finally {
       setLoading(false);
     }

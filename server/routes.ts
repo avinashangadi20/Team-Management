@@ -456,7 +456,7 @@ apiRouter.put('/admin/users/:id/status', authenticateToken, requireRole(['ADMIN'
   return res.json({ message: `User status changed to ${status}`, user: sanitizeUser(users[idx]) });
 });
 
-apiRouter.put('/admin/users/:id', authenticateToken, requireRole(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.put('/admin/users/:id', authenticateToken, requireRole(['ADMIN', 'AM']), (req: AuthenticatedRequest, res: Response) => {
   const userId = req.params.id;
   const { full_name, mobile, designation, role, team_id, reporting_tl_id, process: processName } = req.body;
 
@@ -756,26 +756,28 @@ apiRouter.post(
   }
 );
 
-apiRouter.get('/reports/history', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.get('/reports/history', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   let list = db.get('uploaded_reports');
   if (req.user!.role === 'TEAM_LEADER' || req.user!.role === 'TL') {
     list = list.filter((r) => r.uploaded_by_id === req.user!.id || r.team_id === req.user!.team_id);
+  } else if (req.user!.role === 'AGENT') {
+    list = list.filter((r) => r.team_id === req.user!.team_id || r.process === req.user!.process);
   }
   return res.json(list);
 });
 
-apiRouter.get('/reports/:id/errors', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req, res) => {
+apiRouter.get('/reports/:id/errors', authenticateToken, (req, res) => {
   const reportId = req.params.id;
   const errors = db.get('report_errors').filter((e) => e.report_id === reportId);
   return res.json(errors);
 });
 
-apiRouter.get('/reports/unmapped', authenticateToken, requireRole(['ADMIN']), (req, res) => {
+apiRouter.get('/reports/unmapped', authenticateToken, (req, res) => {
   const unmapped = db.get('unmapped_records');
   return res.json(unmapped);
 });
 
-apiRouter.post('/reports/unmapped/:id/resolve', authenticateToken, requireRole(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
+apiRouter.post('/reports/unmapped/:id/resolve', authenticateToken, requireRole(['ADMIN', 'AM', 'TEAM_LEADER', 'TL']), (req: AuthenticatedRequest, res: Response) => {
   const unmapId = req.params.id;
   const { employee_id } = req.body;
 
@@ -796,7 +798,7 @@ apiRouter.post('/reports/unmapped/:id/resolve', authenticateToken, requireRole([
   logAudit({
     user_id: req.user!.id,
     username: req.user!.username,
-    role: 'ADMIN',
+    role: req.user!.role,
     action: 'RESOLVE_UNMAPPED_RECORD',
     module: 'Report Processing',
     record_id: unmapId,
@@ -1533,9 +1535,13 @@ apiRouter.put('/notifications/read-all', authenticateToken, (req: AuthenticatedR
   return res.json({ success: true });
 });
 
-apiRouter.get('/audit-logs', authenticateToken, requireRole(['ADMIN']), (req, res) => {
+apiRouter.get('/audit-logs', authenticateToken, (req: AuthenticatedRequest, res: Response) => {
   const { module: mod, action, username } = req.query;
   let logs = db.get('audit_logs');
+
+  if (req.user!.role === 'AGENT') {
+    logs = logs.filter((l) => l.user_id === req.user!.id || l.username === req.user!.username);
+  }
 
   if (mod) logs = logs.filter((l) => l.module === String(mod));
   if (action) logs = logs.filter((l) => l.action.includes(String(action)));

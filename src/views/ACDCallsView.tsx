@@ -19,10 +19,13 @@ export const ACDCallsView: React.FC = () => {
         employee_id: searchEmpId || undefined,
         queue: queueFilter || undefined,
         date: dateFilter || undefined
+      }).catch((err) => {
+        console.warn('Failed to load ACD calls:', err);
+        return [];
       });
-      setCalls(data);
+      setCalls(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      console.error('Failed to load ACD calls:', err);
+      console.warn('Notice loading ACD calls:', err);
     } finally {
       setLoading(false);
     }
